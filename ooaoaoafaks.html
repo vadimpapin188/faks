@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vadim Chat</title>
+    <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #111; color: white; margin: 0; padding: 10px; }
+        #chat-box { max-width: 500px; margin: auto; background: #222; border-radius: 15px; height: 90vh; display: flex; flex-direction: column; }
+        #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .msg { padding: 10px 14px; border-radius: 15px; font-size: 16px; max-width: 80%; line-height: 1.4; }
+        .mine { background: #0084ff; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .others { background: #333; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .input-area { display: flex; padding: 15px; gap: 10px; border-top: 1px solid #333; }
+        input { flex: 1; padding: 12px; border: none; border-radius: 25px; background: #444; color: white; outline: none; }
+        button { background: #0084ff; color: white; border: none; border-radius: 50%; width: 45px; height: 45px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="chat-box">
+    <div id="messages"></div>
+    <div class="input-area">
+        <input type="text" id="textInput" placeholder="Напиши сообщение...">
+        <button onclick="sendMsg()">➤</button>
+    </div>
+</div>
+
+<script>
+    // 1. Вставь сюда API Key с сайта ably.com
+    const API_KEY = 'M9FSjQ.1eCbcw:gmIuogBbVXZnMUew6GlHaBQBCmrsBDyNTNiz_vtR-r0';
+    
+    const ably = new Ably.Realtime(API_KEY);
+    const channel = ably.channels.get('global-chat');
+    const myId = Math.random().toString(36).substring(7);
+
+    // 2. Получение сообщений от других
+    channel.subscribe('message', (msg) => {
+        // Если ID отправителя не мой, показываем сообщение как входящее
+        if (msg.data.senderId !== myId) {
+            renderMessage(msg.data.text, false);
+        }
+    });
+
+    // 3. Отправка сообщения
+    function sendMsg() {
+        const input = document.getElementById('textInput');
+        if (!input.value.trim()) return;
+
+        const data = { text: input.value, senderId: myId };
+        
+        // Отправляем в облако
+        channel.publish('message', data);
+        
+        // Показываем у себя на экране
+        renderMessage(input.value, true);
+        input.value = '';
+    }
+
+    function renderMessage(text, isMine) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + (isMine ? 'mine' : 'others');
+        div.textContent = text;
+        const box = document.getElementById('messages');
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    // Отправка по нажатию Enter
+    document.getElementById('textInput').onkeypress = (e) => { if(e.key === 'Enter') sendMsg(); };
+</script>
+
+</body>
+</html>
