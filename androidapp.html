@@ -49,7 +49,12 @@
     </div>
 
 <script>
-    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
+// Просим разрешение на уведомления сразу
+if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+    Notification.requestPermission();
+}
+navigator.serviceWorker.register('sw.js')    
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
 
     async function subscribePush() {
         const permission = await Notification.requestPermission();
@@ -86,30 +91,60 @@
         });
     }
 
-    function startChat(id, name) {
-        if(currentChannel) currentChannel.unsubscribe();
-        activeId = id;
-        render();
-        document.getElementById('chat-title').textContent = name;
-        document.getElementById('messages').innerHTML = "";
-        const room = [myId, id].sort().join('_');
-        currentChannel = ably.channels.get(room);
-        
-        const hist = JSON.parse(localStorage.getItem('h_'+id) || '[]');
-        hist.forEach(m => renderMsg(m.t, m.s === myId, false));
+   function startChat(id, name) {
+    if(currentChannel) currentChannel.unsubscribe();
+    activeId = id;
+    render();
+    document.getElementById('chat-title').textContent = name;
+    document.getElementById('messages').innerHTML = "";
+    const room = [myId, id].sort().join('_');
+    currentChannel = ably.channels.get(room);
+    
+    // Подгружаем историю (те самые сообщения, что пришли, пока мы были "офлайн")
+    currentChannel.history({limit: 30}, (err, page) => {
+        if (!err) {
+            page.items.reverse().forEach(m => {
+                renderMsg(m.data.t, m.data.s === myId, m.data.sec);
+            });
+        }
+    });
 
-        currentChannel.subscribe('msg', m => {
-            if(m.data.s !== myId) {
-                if(!m.data.sec) saveMsg(id, m.data.t, m.data.s);
-                renderMsg(m.data.t, false, m.data.sec);
+    currentChannel.subscribe('msg', m => {
+        if(m.data.s !== myId) {
+            // Если чат не секретный — сохраняем
+            if(!m.data.sec) saveMsg(id, m.data.t, m.data.s);
+            
+            // Показываем в окне чата
+            renderMsg(m.data.t, false, m.data.sec);
+            
+            // ГЛАВНОЕ: Если человек свернул вкладку (не в сети прямо сейчас)
+            if (document.hidden || document.visibilityState === 'hidden') {
                 
-                if (navigator.vibrate) navigator.vibrate(100);
-                if (document.hidden) {
-                    new Notification("Faks: " + name, { body: m.data.t });
+                // 1. Вибрация (для Android)
+                if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                
+                // 2. Звуковой сигнал (создаем его на лету)
+                let audio = new Audio('https://www.soundjay.com/buttons/beep-07a.mp3');
+                audio.play();
+
+                // 3. Системное уведомление
+                if (Notification.permission === "granted") {
+                    const n = new Notification("Faks: " + name, {
+                        body: m.data.t,
+                        icon: "icon-192.png",
+                        tag: "faks-msg" // Чтобы уведомления не спамили, а обновлялись
+                    });
+                    
+                    // При нажатии на уведомление — возвращаем в чат
+                    n.onclick = function() {
+                        window.focus();
+                        this.close();
+                    };
                 }
             }
-        });
-    }
+        }
+    });
+}
 
     function send() {
         const i = document.getElementById('msgInput');
@@ -144,6 +179,68 @@
             currentChannel.publish('ping', { time: Date.now(), s: myId });
         }
     }, 20000);
+
+// 1. Запрашиваем разрешение сразу при загрузке
+if (Notification.permission !== "granted") {
+    Notification.requestPermission();
+}
+
+// 2. Обновленная функция старта чата
+function startChat(id, name) {
+    if(currentChannel) currentChannel.unsubscribe();
+    activeId = id;
+    render();
+    document.getElementById('chat-title').textContent = name;
+    document.getElementById('messages').innerHTML = "";
+    const room = [myId, id].sort().join('_');
+    currentChannel = ably.channels.get(room);
+    
+    const hist = JSON.parse(localStorage.getItem('h_'+id) || '[]');
+    hist.forEach(m => renderMsg(m.t, m.s === myId, false));
+
+    currentChannel.subscribe('msg', m => {
+        if(m.data.s !== myId) {
+            if(!m.data.sec) saveMsg(id, m.data.t, m.data.s);
+            renderMsg(m.data.t, false, m.data.sec);
+            
+            // МАГИЯ УВЕДОМЛЕНИЙ БЕЗ СЕРВЕРА
+            if (document.hidden) {
+                // Вибрация
+                if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                
+                // Показываем системную плашку
+                const notification = new Notification("Faks: " + name, {
+                    body: m.data.t,
+                    tag: id, // сообщения от одного человека заменяют друг друга
+                    renotify: true
+                });
+
+                notification.onclick = function() {
+                    window.focus();
+                    this.close();
+                };
+            }
+        }
+    });
+}
+// Попытка заблокировать "засыпание" для Android APK
+if ('wakeLock' in navigator) {
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('APK не уснет!');
+        } catch (err) {
+            console.log('Система заблокировала удержание');
+        }
+    };
+    requestWakeLock();
+}
+
+// Защита от случайного выхода (когда нажимают кнопку "Назад")
+window.onbeforeunload = function() {
+    return "Если вы закроете Faks, сообщения перестанут приходить!";
+};
 </script>
 </body>
 </html>
