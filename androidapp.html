@@ -2,25 +2,27 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Faks Android</title>
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#3b82f6">
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
     <style>
         body { font-family: 'Roboto', sans-serif; background: #121212; color: white; margin: 0; display: flex; flex-direction: column; height: 100vh; }
         #toolbar { background: #3b82f6; padding: 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-        #my-id-info { background: #1e1e1e; font-size: 11px; padding: 5px 15px; color: #888; }
+        #my-id-info { background: #1e1e1e; font-size: 11px; padding: 5px 15px; color: #888; display: flex; justify-content: space-between; }
         #contacts-bar { background: #1e1e1e; padding: 10px; display: flex; gap: 10px; overflow-x: auto; border-bottom: 1px solid #333; }
-        .c-item { background: #333; padding: 10px 15px; border-radius: 4px; white-space: nowrap; border-left: 3px solid #3b82f6; }
+        .c-item { background: #333; padding: 10px 15px; border-radius: 4px; white-space: nowrap; border-left: 3px solid #3b82f6; cursor: pointer; }
+        .c-item.active { background: #444; border-left-color: #fff; }
         #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
-        .msg { padding: 12px; border-radius: 4px; max-width: 85%; line-height: 1.4; }
+        .msg { padding: 12px; border-radius: 4px; max-width: 85%; line-height: 1.4; position: relative; }
         .mine { background: #005a9e; align-self: flex-end; }
         .others { background: #2c2c2c; align-self: flex-start; }
-        .secret { border: 1px dashed #ff4500; }
+        .secret { border: 1px dashed #ff4500; font-style: italic; }
         .input-box { background: #1e1e1e; padding: 10px; display: flex; flex-direction: column; gap: 5px; }
         .input-row { display: flex; gap: 10px; }
-        input { flex: 1; background: transparent; border: none; border-bottom: 2px solid #3b82f6; color: white; padding: 8px; outline: none; }
+        input[type="text"] { flex: 1; background: transparent; border: none; border-bottom: 2px solid #3b82f6; color: white; padding: 8px; outline: none; }
         button { background: #3b82f6; border: none; color: white; border-radius: 2px; padding: 8px 15px; font-weight: bold; }
     </style>
 </head>
@@ -29,7 +31,10 @@
         <span id="chat-title">Faks Android</span>
         <button onclick="addContact()" style="background:#1e1e1e; font-size:12px;">+ КОНТАКТ</button>
     </div>
-    <div id="my-id-info">Ваш ID: загрузка...</div>
+    <div id="my-id-info">
+        <span id="my-id-text">Ваш ID: загрузка...</span>
+        <span onclick="subscribePush()" style="color:#3b82f6; cursor:pointer;">🔔 ВКЛ. PUSH</span>
+    </div>
     <div id="contacts-bar"></div>
     <div id="messages"></div>
     <div class="input-box">
@@ -44,11 +49,18 @@
     </div>
 
 <script>
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
+
+    async function subscribePush() {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') alert("Уведомления включены!");
+    }
+
     const API_KEY = 'M9FSjQ.1eCbcw:gmIuogBbVXZnMUew6GlHaBQBCmrsBDyNTNiz_vtR-r0';
     const ably = new Ably.Realtime(API_KEY);
     let myId = localStorage.getItem('faks_myid_and') || 'and-' + Math.random().toString(36).substr(2, 5);
     localStorage.setItem('faks_myid_and', myId);
-    document.getElementById('my-id-info').textContent = "Ваш ID: " + myId;
+    document.getElementById('my-id-text').textContent = "Ваш ID: " + myId;
 
     let currentChannel = null;
     let activeId = null;
@@ -58,7 +70,7 @@
 
     function addContact() {
         const id = prompt("ID друга:"); if (!id) return;
-        const name = prompt("Имя (Например: Вадим и т.д.):"); if (!name) return;
+        const name = prompt("Имя:"); if (!name) return;
         if(!contacts.find(c => c.id === id)) { contacts.push({id, name}); save(); }
     }
 
@@ -67,7 +79,8 @@
         bar.innerHTML = "";
         contacts.forEach(c => {
             const d = document.createElement('div');
-            d.className = 'c-item'; d.textContent = c.name;
+            d.className = 'c-item' + (activeId === c.id ? ' active' : ''); 
+            d.textContent = c.name;
             d.onclick = () => startChat(c.id, c.name);
             bar.appendChild(d);
         });
@@ -76,6 +89,7 @@
     function startChat(id, name) {
         if(currentChannel) currentChannel.unsubscribe();
         activeId = id;
+        render();
         document.getElementById('chat-title').textContent = name;
         document.getElementById('messages').innerHTML = "";
         const room = [myId, id].sort().join('_');
@@ -88,6 +102,11 @@
             if(m.data.s !== myId) {
                 if(!m.data.sec) saveMsg(id, m.data.t, m.data.s);
                 renderMsg(m.data.t, false, m.data.sec);
+                
+                if (navigator.vibrate) navigator.vibrate(100);
+                if (document.hidden) {
+                    new Notification("Faks: " + name, { body: m.data.t });
+                }
             }
         });
     }
@@ -119,6 +138,12 @@
 
     function clearHist() { if(activeId) { localStorage.removeItem('h_'+activeId); document.getElementById('messages').innerHTML = ""; } }
     render();
+
+    setInterval(() => {
+        if (document.hidden && currentChannel) {
+            currentChannel.publish('ping', { time: Date.now(), s: myId });
+        }
+    }, 20000);
 </script>
 </body>
 </html>
