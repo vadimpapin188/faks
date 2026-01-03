@@ -4,46 +4,54 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Faks iOS</title>
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Faks">
     <link rel="apple-touch-icon" href="icon-192.png">
+
     <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #000; color: white; margin: 0; display: flex; flex-direction: column; height: 100vh; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+            background: #000; color: white; margin: 0; display: flex; 
+            flex-direction: column; height: 100vh;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
         #toolbar { background: #1c1c1e; padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 0.5px solid #333; }
-        #my-id-info { background: #000; font-size: 11px; padding: 5px 15px; color: #888; display: flex; justify-content: space-between; }
+        #status-info { background: #000; font-size: 11px; padding: 5px 15px; color: #888; display: flex; justify-content: space-between; }
         #contacts-bar { background: #000; padding: 10px; display: flex; gap: 10px; overflow-x: auto; border-bottom: 0.5px solid #333; }
-        .c-item { background: #1c1c1e; padding: 10px 15px; border-radius: 10px; white-space: nowrap; border-left: 3px solid #007aff; cursor: pointer; }
+        .c-item { background: #1c1c1e; padding: 10px 15px; border-radius: 10px; white-space: nowrap; border-left: 3px solid #007aff; }
         .c-item.active { background: #2c2c2e; border-left-color: #fff; }
         #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 8px; }
-        .msg { padding: 10px 15px; border-radius: 18px; max-width: 75%; line-height: 1.4; font-size: 16px; }
+        .msg { padding: 10px 15px; border-radius: 18px; max-width: 75%; font-size: 16px; line-height: 1.4; }
         .mine { background: #007aff; align-self: flex-end; border-bottom-right-radius: 4px; }
         .others { background: #262629; align-self: flex-start; border-bottom-left-radius: 4px; }
         .secret { border: 1px dashed #ff4500; }
-        .input-box { background: #1c1c1e; padding: 10px 15px 25px 15px; display: flex; flex-direction: column; gap: 8px; }
+        .input-box { background: #1c1c1e; padding: 10px 15px 25px; display: flex; flex-direction: column; gap: 8px; }
         .input-row { display: flex; gap: 10px; align-items: center; }
-        input[type="text"] { flex: 1; background: #2c2c2e; border: none; color: white; padding: 10px 15px; border-radius: 20px; outline: none; font-size: 16px; }
+        input { flex: 1; background: #2c2c2e; border: none; color: white; padding: 12px; border-radius: 20px; outline: none; font-size: 16px; }
         button { background: #007aff; border: none; color: white; border-radius: 20px; padding: 8px 18px; font-weight: 600; }
-        #install-hint { background: #007aff; color: white; padding: 8px; font-size: 12px; text-align: center; display: none; }
+        #dot { width: 8px; height: 8px; background: #ff3b30; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .online { background: #4cd964 !important; }
     </style>
 </head>
 <body>
-    <div id="install-hint" onclick="this.style.display='none'">Нажми «Поделиться» → «На экран Домой»</div>
     <div id="toolbar">
-        <span id="chat-title">Faks iOS</span>
+        <span><div id="dot"></div> <span id="chat-title">Faks iOS</span></span>
         <button onclick="addContact()" style="background:#2c2c2e; font-size:12px;">+ КОНТАКТ</button>
     </div>
-    <div id="my-id-info">
-        <span id="my-id-text">ID: загрузка...</span>
-        <span onclick="requestNotify()" style="color:#007aff; cursor:pointer;">ВКЛ. УВЕДОМЛЕНИЯ</span>
+    <div id="status-info">
+        <span id="my-id-text">ID: ...</span>
+        <span onclick="Notification.requestPermission()" style="color:#007aff;">ВКЛ. УВЕДОМЛЕНИЯ</span>
     </div>
     <div id="contacts-bar"></div>
     <div id="messages"></div>
     <div class="input-box">
         <div style="display:flex; justify-content: space-between;">
             <label style="font-size: 12px; color: #ff4500;"><input type="checkbox" id="isSecret"> СЕКРЕТНО</label>
-            <span onclick="clearHist()" style="color:#555; font-size:12px; cursor:pointer;">ОЧИСТИТЬ</span>
+            <span onclick="clearHist()" style="color:#555; font-size:12px;">ОЧИСТИТЬ</span>
         </div>
         <div class="input-row">
             <input type="text" id="msgInput" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') send()">
@@ -52,10 +60,9 @@
     </div>
 
 <script>
-    if (window.navigator.standalone === false) { document.getElementById('install-hint').style.display = 'block'; }
-
     const API_KEY = 'M9FSjQ.1eCbcw:gmIuogBbVXZnMUew6GlHaBQBCmrsBDyNTNiz_vtR-r0';
-    const ably = new Ably.Realtime(API_KEY);
+    const ably = new Ably.Realtime({ key: API_KEY, transportParams: { heartbeatInterval: 10000 } });
+    
     let myId = localStorage.getItem('faks_myid_ios') || 'ios-' + Math.random().toString(36).substr(2, 5);
     localStorage.setItem('faks_myid_ios', myId);
     document.getElementById('my-id-text').textContent = "Ваш ID: " + myId;
@@ -64,17 +71,15 @@
     let activeId = null;
     let contacts = JSON.parse(localStorage.getItem('ios_contacts') || '[]');
 
-    async function requestNotify() {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') alert("Уведомления включены!");
-    }
+    // Индикатор сети
+    ably.connection.on('connected', () => document.getElementById('dot').className = 'online');
+    ably.connection.on('disconnected', () => document.getElementById('dot').className = '');
 
     function save() { localStorage.setItem('ios_contacts', JSON.stringify(contacts)); render(); }
 
     function addContact() {
-        const id = prompt("ID друга:"); if (!id) return;
-        const name = prompt("Имя:"); if (!name) return;
-        if(!contacts.find(c => c.id === id)) { contacts.push({id, name}); save(); }
+        const id = prompt("ID друга:"); const name = prompt("Имя:");
+        if (id && name && !contacts.find(c => c.id === id)) { contacts.push({id, name}); save(); }
     }
 
     function render() {
@@ -98,14 +103,23 @@
         const room = [myId, id].sort().join('_');
         currentChannel = ably.channels.get(room);
         
-        const hist = JSON.parse(localStorage.getItem('h_'+id) || '[]');
-        hist.forEach(m => renderMsg(m.t, m.s === myId, false));
+        // Загрузка истории (чтобы видеть сообщения, когда зашел в приложение)
+        currentChannel.history({limit: 30}, (err, page) => {
+            if(!err) page.items.reverse().forEach(m => renderMsg(m.data.t, m.data.s === myId, m.data.sec));
+        });
 
         currentChannel.subscribe('msg', m => {
             if(m.data.s !== myId) {
                 if(!m.data.sec) saveMsg(id, m.data.t, m.data.s);
                 renderMsg(m.data.t, false, m.data.sec);
-                if (document.hidden) { new Notification("Faks: " + name, { body: m.data.t }); }
+                
+                // Уведомление в фоне
+                if (document.hidden) {
+                    new Audio('https://www.soundjay.com/buttons/beep-07a.mp3').play();
+                    if (Notification.permission === "granted") {
+                        new Notification("Faks: " + name, { body: m.data.t, tag: "faks" });
+                    }
+                }
             }
         });
     }
@@ -136,13 +150,13 @@
     }
 
     function clearHist() { if(activeId) { localStorage.removeItem('h_'+activeId); document.getElementById('messages').innerHTML = ""; } }
-    render();
-
+    
+    // Пинг для поддержания жизни свернутого приложения
     setInterval(() => {
-        if (document.hidden && currentChannel) {
-            currentChannel.publish('ping', { time: Date.now(), s: myId });
-        }
-    }, 20000);
+        if (currentChannel) currentChannel.publish('ping', 'stay_alive');
+    }, 15000);
+
+    render();
 </script>
 </body>
 </html>
